@@ -43,7 +43,7 @@ sunarp/
 
 ## 🛠️ Requisitos previos
 
-1.  **Python 3.11+**
+1.  **Python 3.11+** — en macOS, el `python3` del sistema (`/usr/bin/python3`) suele ser una versión muy vieja (3.9) que no cumple este requisito; instalá una versión reciente con `brew install python@3.11` y usala explícitamente al crear el entorno virtual (ver paso 2).
 2.  **Tesseract OCR** (motor de reconocimiento de texto):
     *   **macOS (Homebrew):**
         ```bash
@@ -67,13 +67,18 @@ cd sunarp
 
 ### 2. Crear y activar el entorno virtual de Python
 ```bash
-python3 -m venv .venv
-
-# macOS/Linux:
+# macOS/Linux: usá explícitamente python3.11 (no "python3" a secas), para
+# evitar terminar con el Python viejo del sistema:
+python3.11 -m venv .venv
 source .venv/bin/activate
+
 # Windows (Command Prompt):
+# python -m venv .venv
 # .venv\Scripts\activate.bat
 ```
+
+> [!TIP]
+> Si `pip install` más abajo falla con algo como `No matching distribution found for scrapling[fetchers]`, es señal de que el venv se creó con un Python muy viejo. Corré `python3 --version` con el venv activado: si no es 3.11+, borrá `.venv` y repetí este paso con `python3.11 -m venv .venv`.
 
 ### 3. Instalar las dependencias del proyecto
 ```bash
