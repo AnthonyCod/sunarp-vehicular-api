@@ -109,13 +109,18 @@ async def extract_vehicular_data(placa: str) -> dict:
 
         page.on("response", on_response)
 
+        # Pequeño respiro: justo cuando el widget de Cloudflare pasa de
+        # "verificando" a "verificado", el formulario puede re-renderizarse
+        # (framework Angular), lo que deja el input "inestable" si lo tocamos
+        # en ese instante. Este margen busca reducir esa carrera.
+        await page.wait_for_timeout(800)
+
         # 1. Completar el formulario con la placa requerida
         input_field = page.locator("input#nroPlaca").first
         await input_field.wait_for(state="visible", timeout=10000)
-        # Timeout explícito y corto: el default (60s) hacía que un intento
-        # fallido se comiera un minuto entero antes de pasar al reintento.
-        await input_field.click(timeout=15000)
-        await input_field.fill(placa)
+        # fill() ya hace su propio foco + chequeo de estabilidad; el click()
+        # explícito previo era redundante y un punto de falla de más.
+        await input_field.fill(placa, timeout=15000)
         await input_field.evaluate("el => el.dispatchEvent(new Event('input', { bubbles: true }))")
         await input_field.evaluate("el => el.dispatchEvent(new Event('change', { bubbles: true }))")
         await page.wait_for_timeout(500)
