@@ -99,10 +99,22 @@ async def extract_vehicular_data(placa: str) -> dict:
         raise Exception("El navegador de Scrapling no ha sido inicializado.")
 
     async def fill_and_submit(page):
+        # Detectar en tiempo real cuándo llega la respuesta de datos vehiculares,
+        # en vez de dormir un tiempo fijo sin saber si ya terminó.
+        xhr_arrived = asyncio.Event()
+
+        def on_response(response):
+            if "getdatosvehiculo" in response.url.lower():
+                xhr_arrived.set()
+
+        page.on("response", on_response)
+
         # 1. Completar el formulario con la placa requerida
         input_field = page.locator("input#nroPlaca").first
         await input_field.wait_for(state="visible", timeout=10000)
-        await input_field.click()
+        # Timeout explícito y corto: el default (60s) hacía que un intento
+        # fallido se comiera un minuto entero antes de pasar al reintento.
+        await input_field.click(timeout=15000)
         await input_field.fill(placa)
         await input_field.evaluate("el => el.dispatchEvent(new Event('input', { bubbles: true }))")
         await input_field.evaluate("el => el.dispatchEvent(new Event('change', { bubbles: true }))")
@@ -111,7 +123,7 @@ async def extract_vehicular_data(placa: str) -> dict:
         # 2. Enviar consulta usando el selector del botón corregido
         submit_button = page.locator("button.btn-sunarp-green, button:has-text('Realizar Busqueda')").first
         await submit_button.wait_for(state="visible", timeout=10000)
-        await submit_button.click()
+        await submit_button.click(timeout=15000)
         print("[INFO] Click en botón de búsqueda realizado.")
 
         # 3. Esperar hasta 3 segundos para detectar si aparece Turnstile post-click
@@ -128,8 +140,14 @@ async def extract_vehicular_data(placa: str) -> dict:
         except Exception as e:
             print(f"[INFO] Solver de Turnstile post-click omitido/error: {e}")
             
-        # 4. Esperar a que la petición XHR de datos vehiculares se procese y termine
-        await page.wait_for_timeout(10000)
+        # 4. Esperar a que llegue la respuesta real (con techo de seguridad de 10s
+        # por si nunca llega, en vez de dormir siempre esos 10s a ciegas)
+        try:
+            await asyncio.wait_for(xhr_arrived.wait(), timeout=10)
+        except asyncio.TimeoutError:
+            pass
+        finally:
+            page.remove_listener("response", on_response)
 
     last_error = Exception("Error desconocido durante la extracción.")
 
