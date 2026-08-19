@@ -139,39 +139,31 @@ async def extract_vehicular_data(placa: str) -> dict:
                 target_xhr = xhr
                 break
 
-        if target_xhr:
-            try:
-                data = target_xhr.json()
-                if isinstance(data, dict):
-                    img_b64 = data.get("model", {}).get("imagen")
-                    if img_b64:
-                        # Decodificar imagen base64
-                        img_bytes = base64.b64decode(img_b64)
-                        image = Image.open(io.BytesIO(img_bytes))
-                        # Ejecutar OCR con segmentación en bloque (PSM 4 es ideal para columnas paralelas de clave:valor)
-                        ocr_text = pytesseract.image_to_string(image, config="--psm 4")
-                        
-                        # Parsear texto del OCR en un JSON limpio
-                        parsed_data = parse_ocr_text(ocr_text)
-                        return parsed_data
-            except Exception as ocr_err:
-                print(f"[INFO] Error al decodificar o procesar OCR de la imagen: {ocr_err}")
+        if not target_xhr:
+            raise Exception("No se pudo capturar la respuesta del servicio de datos vehiculares.")
 
-        # 2. Respaldo: Extraer los datos desde la tabla de resultados renderizada en el DOM
-        rows = response.css("table tr")
-        structured_data = {}
-        for row in rows:
-            cols = row.css("td, th")
-            if len(cols) >= 2:
-                key = cols[0].get_all_text(strip=True).replace(":", "")
-                val = cols[1].get_all_text(strip=True)
-                if key:
-                    structured_data[key] = val
+        data = target_xhr.json()
+        if not isinstance(data, dict):
+            raise Exception("Respuesta inesperada del servicio de datos vehiculares.")
 
-        if structured_data:
-            return structured_data
+        model = data.get("model")
+        img_b64 = model.get("imagen") if isinstance(model, dict) else None
 
-        raise Exception("No se obtuvieron registros para la placa solicitada.")
+        if not img_b64:
+            # Sin imagen no hay datos que extraer: normalmente significa que la
+            # placa no existe en el registro. Usamos el mensaje real de SUNARP
+            # en vez de caer en un respaldo que raspe una tabla no relacionada.
+            mensaje = data.get("mensaje") or data.get("mensajeTxt") or "La placa no fue encontrada en el registro."
+            raise Exception(mensaje)
+
+        # Decodificar imagen base64
+        img_bytes = base64.b64decode(img_b64)
+        image = Image.open(io.BytesIO(img_bytes))
+        # Ejecutar OCR con segmentación en bloque (PSM 4 es ideal para columnas paralelas de clave:valor)
+        ocr_text = pytesseract.image_to_string(image, config="--psm 4")
+
+        # Parsear texto del OCR en un JSON limpio
+        return parse_ocr_text(ocr_text)
 
     except AutomationTimeoutError:
         raise Exception("Tiempo de espera agotado al conectar con el servicio público.")
