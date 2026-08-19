@@ -1,6 +1,12 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, status
-from app.schemas import VehicularQueryResponse
+from app.schemas import (
+    BatchJobCreatedResponse,
+    BatchJobResponse,
+    BatchQueryRequest,
+    VehicularQueryResponse,
+)
+from app.automation.batch_manager import batch_manager
 from app.automation.browser_manager import session_manager
 from app.automation.vehicular_service import extract_vehicular_data
 
@@ -49,3 +55,49 @@ async def get_vehiculo(placa: str):
             data=None,
             message=str(exc)
         )
+
+@app.post(
+    "/api/v1/vehiculo/lote",
+    response_model=BatchJobCreatedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Encolar una consulta masiva de placas vehiculares"
+)
+async def post_vehiculo_lote(payload: BatchQueryRequest):
+    sanitized_placas = []
+    seen = set()
+    for raw_placa in payload.placas:
+        placa = raw_placa.replace("-", "").replace(" ", "").upper()
+        if placa in seen:
+            continue
+        seen.add(placa)
+        sanitized_placas.append(placa)
+
+    job_id = batch_manager.create_job(sanitized_placas)
+    job = batch_manager.get_job(job_id)
+
+    return BatchJobCreatedResponse(
+        job_id=job_id,
+        status=job["status"],
+        total=job["total"]
+    )
+
+@app.get(
+    "/api/v1/vehiculo/lote/{job_id}",
+    response_model=BatchJobResponse,
+    summary="Consultar el progreso y los resultados de una carga masiva"
+)
+async def get_vehiculo_lote(job_id: str):
+    job = batch_manager.get_job(job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No se encontró una carga masiva con ese job_id."
+        )
+
+    return BatchJobResponse(
+        job_id=job_id,
+        status=job["status"],
+        total=job["total"],
+        completadas=len(job["resultados"]),
+        resultados=job["resultados"]
+    )
