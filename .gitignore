@@ -1,11 +1,26 @@
-# Entornos y dependencias
+# Entornos virtuales
 .venv/
+venv/
+env/
+ENV/
+
+# Caché de Python y compilados
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.pytest_cache/
 
-# Variables de entorno (usar .env.example como plantilla)
+# Configuración local sensible
 .env
 
-# Artefactos de pruebas locales (pueden contener datos reales de consultas)
-*.png
+# Archivos de depuración y temporales locales
 getDatosVehiculo.json
+vehicle_data.png
+sunarp_query_result.png
+sunarp_screenshot.png
+raw_response.bin
+
+# Archivos específicos del sistema operativo
+.DS_Store
+Thumbs.db

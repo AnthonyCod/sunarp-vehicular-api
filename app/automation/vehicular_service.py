@@ -81,6 +81,16 @@ def parse_ocr_text(text: str) -> dict:
     result["propietarios"] = propietarios
     return result
 
+# Intentos totales por placa (1 inicial + reintentos) ante fallos transitorios
+# de la automatización: el click no registra, el Turnstile no termina de
+# resolverse a tiempo, o el XHR de datos no llega a capturarse.
+MAX_ATTEMPTS = 3
+
+class PlacaNoEncontradaError(Exception):
+    """La placa no existe en el registro de SUNARP. No es un fallo técnico
+    de la automatización, así que reintentar no cambiará el resultado."""
+    pass
+
 async def extract_vehicular_data(placa: str) -> dict:
     """
     Ejecuta el flujo de consulta en el portal y extrae los datos resultantes usando Scrapling.
@@ -121,51 +131,64 @@ async def extract_vehicular_data(placa: str) -> dict:
         # 4. Esperar a que la petición XHR de datos vehiculares se procese y termine
         await page.wait_for_timeout(10000)
 
-    try:
-        # Ejecutamos la petición con Scrapling, gestionando automáticamente el bypass de Cloudflare
-        # y la captura de XHR gracias a capture_xhr en la sesión.
-        response = await session_manager.session.fetch(
-            settings.SUNARP_PORTAL_URL,
-            page_setup=None,
-            page_action=fill_and_submit,
-            solve_cloudflare=True,
-            timeout=settings.OPERATION_TIMEOUT * 1000
-        )
+    last_error = Exception("Error desconocido durante la extracción.")
 
-        # 1. Intentar capturar y retornar el JSON de getDatosVehiculo
-        target_xhr = None
-        for xhr in getattr(response, "captured_xhr", []):
-            if "getdatosvehiculo" in xhr.url.lower():
-                target_xhr = xhr
-                break
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            # Ejecutamos la petición con Scrapling, gestionando automáticamente el bypass de Cloudflare
+            # y la captura de XHR gracias a capture_xhr en la sesión.
+            response = await session_manager.session.fetch(
+                settings.SUNARP_PORTAL_URL,
+                page_setup=None,
+                page_action=fill_and_submit,
+                solve_cloudflare=True,
+                timeout=settings.OPERATION_TIMEOUT * 1000
+            )
 
-        if not target_xhr:
-            raise Exception("No se pudo capturar la respuesta del servicio de datos vehiculares.")
+            # 1. Intentar capturar y retornar el JSON de getDatosVehiculo
+            target_xhr = None
+            for xhr in getattr(response, "captured_xhr", []):
+                if "getdatosvehiculo" in xhr.url.lower():
+                    target_xhr = xhr
+                    break
 
-        data = target_xhr.json()
-        if not isinstance(data, dict):
-            raise Exception("Respuesta inesperada del servicio de datos vehiculares.")
+            if not target_xhr:
+                raise Exception("No se pudo capturar la respuesta del servicio de datos vehiculares.")
 
-        model = data.get("model")
-        img_b64 = model.get("imagen") if isinstance(model, dict) else None
+            data = target_xhr.json()
+            if not isinstance(data, dict):
+                raise Exception("Respuesta inesperada del servicio de datos vehiculares.")
 
-        if not img_b64:
-            # Sin imagen no hay datos que extraer: normalmente significa que la
-            # placa no existe en el registro. Usamos el mensaje real de SUNARP
-            # en vez de caer en un respaldo que raspe una tabla no relacionada.
-            mensaje = data.get("mensaje") or data.get("mensajeTxt") or "La placa no fue encontrada en el registro."
-            raise Exception(mensaje)
+            model = data.get("model")
+            img_b64 = model.get("imagen") if isinstance(model, dict) else None
 
-        # Decodificar imagen base64
-        img_bytes = base64.b64decode(img_b64)
-        image = Image.open(io.BytesIO(img_bytes))
-        # Ejecutar OCR con segmentación en bloque (PSM 4 es ideal para columnas paralelas de clave:valor)
-        ocr_text = pytesseract.image_to_string(image, config="--psm 4")
+            if not img_b64:
+                # Sin imagen no hay datos que extraer: normalmente significa que la
+                # placa no existe en el registro. Usamos el mensaje real de SUNARP
+                # en vez de caer en un respaldo que raspe una tabla no relacionada.
+                mensaje = data.get("mensaje") or data.get("mensajeTxt") or "La placa no existe en el registro de SUNARP."
+                raise PlacaNoEncontradaError(mensaje)
 
-        # Parsear texto del OCR en un JSON limpio
-        return parse_ocr_text(ocr_text)
+            # Decodificar imagen base64
+            img_bytes = base64.b64decode(img_b64)
+            image = Image.open(io.BytesIO(img_bytes))
+            # Ejecutar OCR con segmentación en bloque (PSM 4 es ideal para columnas paralelas de clave:valor)
+            ocr_text = pytesseract.image_to_string(image, config="--psm 4")
 
-    except AutomationTimeoutError:
-        raise Exception("Tiempo de espera agotado al conectar con el servicio público.")
-    except Exception as e:
-        raise Exception(f"Error durante la extracción: {str(e)}")
+            # Parsear texto del OCR en un JSON limpio
+            return parse_ocr_text(ocr_text)
+
+        except PlacaNoEncontradaError:
+            # No es un fallo técnico transitorio: reintentar no va a cambiar
+            # el resultado, así que devolvemos esto de inmediato.
+            raise
+        except AutomationTimeoutError:
+            last_error = Exception("Tiempo de espera agotado al conectar con el servicio público.")
+        except Exception as e:
+            last_error = Exception(f"Error durante la extracción: {str(e)}")
+
+        if attempt < MAX_ATTEMPTS:
+            print(f"[INFO] Intento {attempt}/{MAX_ATTEMPTS} fallido para placa {placa}: {last_error}. Reintentando...")
+            await asyncio.sleep(3)
+
+    raise last_error

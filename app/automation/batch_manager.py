@@ -11,9 +11,6 @@ from app.automation.vehicular_service import extract_vehicular_data
 # para evitar un patrón de tráfico uniforme detectable como bot.
 JITTER_RANGE = (1.5, 4.0)
 
-# Reintentos ante fallos transitorios (timeouts, Turnstile lento, etc.)
-MAX_RETRIES = 2
-
 
 class BatchJobManager:
     def __init__(self):
@@ -55,25 +52,22 @@ class BatchJobManager:
 
         async def process_one(placa: str):
             async with self._semaphore:
-                result = None
-                for attempt in range(MAX_RETRIES + 1):
-                    await asyncio.sleep(random.uniform(*JITTER_RANGE))
-                    try:
-                        data = await extract_vehicular_data(placa)
-                        result = VehicularQueryResponse(
-                            success=True,
-                            placa=placa,
-                            data=data,
-                            message="Consulta procesada exitosamente."
-                        )
-                        break
-                    except Exception as exc:
-                        result = VehicularQueryResponse(
-                            success=False,
-                            placa=placa,
-                            data=None,
-                            message=str(exc)
-                        )
+                await asyncio.sleep(random.uniform(*JITTER_RANGE))
+                try:
+                    data = await extract_vehicular_data(placa)
+                    result = VehicularQueryResponse(
+                        success=True,
+                        placa=placa,
+                        data=data,
+                        message="Consulta procesada exitosamente."
+                    )
+                except Exception as exc:
+                    result = VehicularQueryResponse(
+                        success=False,
+                        placa=placa,
+                        data=None,
+                        message=str(exc)
+                    )
                 job["resultados"].append(result)
 
         await asyncio.gather(*(process_one(placa) for placa in placas))
