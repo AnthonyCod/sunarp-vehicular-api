@@ -1,0 +1,11 @@
+# Entornos y dependencias
+.venv/
+__pycache__/
+*.pyc
+
+# Variables de entorno (usar .env.example como plantilla)
+.env
+
+# Artefactos de pruebas locales (pueden contener datos reales de consultas)
+*.png
+getDatosVehiculo.json
