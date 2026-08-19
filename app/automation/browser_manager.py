@@ -13,11 +13,16 @@ class BrowserSessionManager:
         # Usamos la configuración limpia de la sesión sigilosa que evade Turnstile.
         # Evitamos pasar locale y timezone_id específicos para evitar discrepancias
         # de huella digital (fingerprint) detectables por Cloudflare.
+        # max_pages debe cubrir la concurrencia real del pool de páginas del
+        # navegador; el default de Scrapling es 1, lo que hacía que consultas
+        # concurrentes (limitadas por MAX_CONCURRENT_SESSIONS) compitieran por
+        # una sola pestaña y fallaran por timeout aunque la placa existiera.
         self.session = AsyncStealthySession(
             headless=settings.HEADLESS_MODE,
             proxy=settings.OUTBOUND_PROXY,
             solve_cloudflare=True,
-            capture_xhr=".*"
+            capture_xhr=".*",
+            max_pages=settings.MAX_CONCURRENT_SESSIONS
         )
         await self.session.start()
 
