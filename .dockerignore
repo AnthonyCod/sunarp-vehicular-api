@@ -1,0 +1,33 @@
+# Entornos virtuales
+.venv/
+venv/
+env/
+ENV/
+
+# Caché de Python y compilados
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Configuración local sensible (se pasa en runtime con --env-file)
+.env
+
+# Control de versiones
+.git/
+.gitignore
+
+# Archivos de depuración y temporales locales
+getDatosVehiculo.json
+vehicle_data.png
+sunarp_query_result.png
+sunarp_screenshot.png
+raw_response.bin
+
+# Archivos específicos del sistema operativo
+.DS_Store
+Thumbs.db
+
+# Documentación (no necesaria dentro de la imagen)
+README.md
